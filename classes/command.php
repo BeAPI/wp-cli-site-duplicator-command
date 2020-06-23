@@ -30,9 +30,6 @@ class WP_CLI_Command {
 	 * <new-site-slug>
 	 * : The subdomain/directory of the new site
 	 *
-	 * [--verbose]
-	 * : Output extra info
-	 *
 	 * ## EXAMPLES
 	 *
 	 *     wp site duplicate domain-slug
@@ -48,10 +45,9 @@ class WP_CLI_Command {
 		}
 
 		$this->destination_slug = $args[0];
-		$this->verbose          = \WP_CLI\Utils\get_flag_value( $assoc_args, 'verbose', false );
 
 		// get info for origin site
-		$this->origin_id     = 0;
+		$this->origin_id     = get_current_blog_id();
 		$this->origin_url    = home_url();
 		$this->origin_tables = $this->get_origin_tables();
 
@@ -60,8 +56,8 @@ class WP_CLI_Command {
 		$this->create_site();
 		$this->duplicate_tables();
 		$this->fix_metadata();
-		$this->search_replace();
 		$this->copy_files();
+		$this->search_replace();
 		$this->flush_cache();
 
 		WP_CLI::success( sprintf( 'Site %s created.', $this->destination_id ) );
@@ -72,7 +68,7 @@ class WP_CLI_Command {
 
 		// first step
 		$_command = sprintf(
-			'wp site create --slug=%s --porcelain --title=%s --network_id=%d',
+			'site create --slug=%s --porcelain --title="%s" --network_id=%d',
 			$this->destination_slug,
 			$this->destination_name,
 			$origin_network_id
@@ -82,7 +78,7 @@ class WP_CLI_Command {
 			$_command,
 			array(
 				'launch'     => true, // Launch a new process, or reuse the existing.
-				'exit_error' => true, // Exit on error by default.
+				'exit_error' => false, // Exit on error by default.
 				'return'     => true, // Capture and return output, or render in realtime.
 				'parse'      => false, // Parse returned output as a particular format.
 			)
@@ -116,8 +112,17 @@ class WP_CLI_Command {
 
 		// copy files via rsync
 		WP_CLI::line( 'Duplicating uploads...' );
-		$this->verbose_line( 'Running command:', "rsync -a {$src_basedir}/ {$dest_basedir} --exclude sites" );
-		WP_CLI::launch( WP_CLI\Utils\esc_cmd( 'rsync -a %s/ %s --exclude sites', $src_basedir, $dest_basedir ) );
+		$this->verbose_line(
+			'Running command:',
+			"rsync -a {$src_basedir}/ {$dest_basedir} --exclude sites"
+		);
+		WP_CLI::launch(
+			WP_CLI\Utils\esc_cmd(
+				'rsync -a %s/ %s --exclude sites',
+				$src_basedir,
+				$dest_basedir
+			)
+		);
 	}
 
 	private function get_origin_tables() {
@@ -126,7 +131,7 @@ class WP_CLI_Command {
 			$_command,
 			array(
 				'launch'     => true, // Launch a new process, or reuse the existing.
-				'exit_error' => true, // Exit on error by default.
+				'exit_error' => false, // Exit on error by default.
 				'return'     => true, // Capture and return output, or render in realtime.
 				'parse'      => false, // Parse returned output as a particular format.
 			)
@@ -155,7 +160,17 @@ class WP_CLI_Command {
 			}
 
 			$wpdb->query( sprintf( 'DROP TABLE IF EXISTS %s;', esc_sql( $new_table ) ) );
-			$wpdb->query( sprintf( 'TRUNCATE TABLE %s;', esc_sql( $new_table ) ) );
+			$results = $wpdb->query(
+				sprintf(
+					'CREATE TABLE %s LIKE %s;',
+					esc_sql( $new_table ),
+					esc_sql( $origin_table )
+				)
+			);
+			if ( false === $results ) {
+				WP_CLI::error( sprintf( 'Failed to create table %s from table %s', $new_table, $origin_table ) );
+			}
+
 			$wpdb->query(
 				sprintf(
 					'INSERT INTO %s SELECT * FROM %s',
@@ -174,30 +189,30 @@ class WP_CLI_Command {
 	public function fix_metadata( $keep_user = true ) {
 		global $wpdb;
 
-		$emitter_prefix  = $wpdb->get_blog_prefix( $this->origin_id );
-		$receiver_prefix = $wpdb->get_blog_prefix( $this->destination_id );
+		$origin_prefix      = $wpdb->get_blog_prefix( $this->origin_id );
+		$destination_prefix = $wpdb->get_blog_prefix( $this->destination_id );
 
-		$option_table = esc_sql( $receiver_prefix . 'options' );
+		$option_table = esc_sql( $destination_prefix . 'options' );
 		//phpcs:disable WordPress.DB.PreparedSQL.NotPrepared
-		$wpdb->query(
-			$wpdb->prepare(
-				//phpcs:disable WordPress.DB.PreparedSQL.InterpolatedNotPrepared
-				"UPDATE $option_table SET option_name = REPLACE(option_name, %s, %s )",
-				//phpcs:enable WordPress.DB.PreparedSQL.InterpolatedNotPrepared
-				$emitter_prefix,
-				$receiver_prefix
-			)
+		$_query = $wpdb->prepare(
+		//phpcs:disable WordPress.DB.PreparedSQL.InterpolatedNotPrepared
+			"UPDATE $option_table SET option_name = REPLACE(option_name, %s, %s )",
+			//phpcs:enable WordPress.DB.PreparedSQL.InterpolatedNotPrepared
+			$origin_prefix,
+			$destination_prefix
 		);
+		$wpdb->query( $_query );
+		$this->verbose_line( 'Running query:', $_query );
 		//phpcs:enable WordPress.DB.PreparedSQL.NotPrepared
 
 		//phpcs:disable WordPress.DB.PreparedSQL.NotPrepared
-		$wpdb->query(
-			$wpdb->prepare(
-				"DELETE FROM {$wpdb->usermeta} WHERE meta_key = %s",
-				//phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared
-				$receiver_prefix . 'capabilities'
-			)
+		$_query = $wpdb->prepare(
+			"DELETE FROM {$wpdb->usermeta} WHERE meta_key = %s",
+			//phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared
+			$destination_prefix . 'capabilities'
 		);
+		$wpdb->query( $_query );
+		$this->verbose_line( 'Running query:', $_query );
 		//phpcs:enable WordPress.DB.PreparedSQL.NotPrepared
 
 		/**
@@ -206,25 +221,25 @@ class WP_CLI_Command {
 		if ( true === $keep_user ) {
 			//phpcs:disable WordPress.DB.PreparedSQL.NotPrepared
 			//phpcs:disable WordPress.DB.PreparedSQL.InterpolatedNotPrepared
-			$wpdb->query(
-				$wpdb->prepare(
-					"
+			$_query = $wpdb->prepare(
+				"
 					INSERT INTO {$wpdb->usermeta} (user_id, meta_key, meta_value)
 					SELECT user_id, %s, meta_value
 					FROM {$wpdb->usermeta}
 					WHERE meta_key = %s;
 					",
-					$receiver_prefix . 'capabilities',
-					$emitter_prefix . 'capabilities'
-				)
+				$destination_prefix . 'capabilities',
+				$origin_prefix . 'capabilities'
 			);
+			$wpdb->query( $_query );
+			$this->verbose_line( 'Running query:', $_query );
 			//phpcs:enable WordPress.DB.PreparedSQL.InterpolatedNotPrepared
 			//phpcs:enable WordPress.DB.PreparedSQL.NotPrepared
 		}
 
 		// Fix title after tables recopy
 		$wpdb->update(
-			$receiver_prefix . 'options',
+			$destination_prefix . 'options',
 			[ 'option_value' => $this->destination_name ],
 			[ 'option_name' => 'blogname' ]
 		);
@@ -270,13 +285,11 @@ class WP_CLI_Command {
 	 * @param string $text
 	 */
 	private function verbose_line( $pre, $text ) {
-		if ( $this->verbose ) {
-			WP_CLI::line(
-				WP_CLI::colorize(
-					"%C$pre%n $text"
-				)
-			);
-		}
+		WP_CLI::debug(
+			WP_CLI::colorize(
+				"%C$pre%n $text"
+			)
+		);
 	}
 
 }
