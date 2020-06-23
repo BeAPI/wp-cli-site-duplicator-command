@@ -7,10 +7,7 @@ defined( 'ABSPATH' ) || die();
 
 use WP_CLI;
 
-/**
- * Blog Duplicate
- */
-class Blog_Duplicate {
+class WP_CLI_Command {
 
 	private $verbose = false;
 
@@ -26,12 +23,12 @@ class Blog_Duplicate {
 	private $destination_url_uploads = '';
 
 	/**
-	 * Duplicate the current blog.
+	 * Duplicate a site
 	 *
 	 * ## OPTIONS
 	 *
 	 * <new-site-slug>
-	 * : The subdomain/directory of the new blog
+	 * : The subdomain/directory of the new site
 	 *
 	 * [--verbose]
 	 * : Output extra info
@@ -67,7 +64,7 @@ class Blog_Duplicate {
 		$this->copy_files();
 		$this->flush_cache();
 
-		WP_CLI::success( sprintf( 'Blog %s created.', $this->destination_id ) );
+		WP_CLI::success( sprintf( 'Site %s created.', $this->destination_id ) );
 	}
 
 	private function create_site() {
@@ -184,8 +181,9 @@ class Blog_Duplicate {
 		//phpcs:disable WordPress.DB.PreparedSQL.NotPrepared
 		$wpdb->query(
 			$wpdb->prepare(
+				//phpcs:disable WordPress.DB.PreparedSQL.InterpolatedNotPrepared
 				"UPDATE $option_table SET option_name = REPLACE(option_name, %s, %s )",
-				//phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared
+				//phpcs:enable WordPress.DB.PreparedSQL.InterpolatedNotPrepared
 				$emitter_prefix,
 				$receiver_prefix
 			)

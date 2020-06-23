@@ -1,8 +1,8 @@
 {
-	"name": "trepmal/blog-duplicator",
-	"description": "Blog Duplicator",
+	"name": "beapi/wp-cli-site-duplicator-command",
+	"description": "A WP-CLI command for duplicating a site (blog) on a WordPress mutisite network",
 	"minimum-stability": "stable",
-	"license": "GPL-2.0",
+	"license": "GPL-2.0-or-later",
 	"authors": [
 		{
 			"name": "BeAPI",

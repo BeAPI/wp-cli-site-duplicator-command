@@ -1,7 +1,7 @@
 <?php
 /**
  * Plugin Name:       WP-CLI Site Duplicator
- * Plugin URI:        https://github.com/BeAPI/blog-duplicator
+ * Plugin URI:        https://github.com/BeAPI/wp-cli-site-duplicator-command
  * Description:       A WP-CLI command for duplicating a site (blog) on a WordPress mutisite network
  * Version:           2.0.0
  * Requires at least: 4.4
@@ -27,5 +27,5 @@ defined( 'ABSPATH' ) || die();
 if ( defined( 'WP_CLI' ) ) {
 	include plugin_dir_path( __FILE__ ) . '/classes/command.php';
 
-	WP_CLI::add_command( 'site duplicate', __NAMESPACE__ . '\\Blog_Duplicate' );
+	WP_CLI::add_command( 'site duplicate', __NAMESPACE__ . '\\WP_CLI_Command' );
 }

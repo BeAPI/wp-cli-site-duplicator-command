@@ -7,7 +7,7 @@
         xsi:schemaLocation="https://getpsalm.org/schema/config vendor/vimeo/psalm/config.xsd"
 >
     <projectFiles>
-        <file name="blog-duplicator.php"/>
+        <file name="wp-cli-site-duplicator-command.php"/>
         <ignoreFiles>
             <directory name="vendor"/>
         </ignoreFiles>
