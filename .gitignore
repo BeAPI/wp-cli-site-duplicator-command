@@ -1,0 +1,15 @@
+# Logs
+*.log
+
+# Dotenv
+.env
+!.env.example
+
+# Composer
+/vendor
+
+# Release
+/bin/release/
+
+# Tests
+/tests/*.txt

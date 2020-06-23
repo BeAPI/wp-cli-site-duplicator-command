@@ -1,5 +1,35 @@
 {
 	"name": "trepmal/blog-duplicator",
 	"description": "Blog Duplicator",
-	"type": "wordpress-plugin"
+	"minimum-stability": "stable",
+	"license": "GPL-2.0",
+	"authors": [
+		{
+			"name": "BeAPI",
+			"email": "technique@beapi.fr"
+		}
+	],
+	"type" : "wordpress-plugin",
+	"require" : {
+		"php": ">=5.6.0",
+		"composer/installers": "~1.0"
+	},
+	"require-dev": {
+        "wp-cli/wp-cli-bundle": "*",
+		"dealerdirect/phpcodesniffer-composer-installer": "^0.6.2",
+		"phpcompatibility/php-compatibility": "^9.3",
+		"phpro/grumphp-shim": "^0.18.0",
+		"roave/security-advisories": "dev-master",
+		"sensiolabs/security-checker": "^6.0",
+		"squizlabs/php_codesniffer": "^3.5",
+		"vimeo/psalm": "^3.11",
+		"wp-coding-standards/wpcs": "^2.2",
+		"overtrue/phplint": "^2.0",
+		"php-parallel-lint/php-parallel-lint": "^1.2"
+	},
+	"scripts": {
+		"cs": "./vendor/bin/phpcs",
+		"cbf": "./vendor/bin/phpcbf",
+		"psalm": "./vendor/bin/psalm"
+	}
 }
