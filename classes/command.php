@@ -68,10 +68,11 @@ class WP_CLI_Command {
 
 		// first step
 		$_command = sprintf(
-			'site create --slug=%s --porcelain --title="%s" --network_id=%d',
+			'site create --slug=%s --porcelain --title="%s" --network_id=%d --url="%s"',
 			$this->destination_slug,
 			$this->destination_name,
-			$origin_network_id
+			$origin_network_id,
+			$this->origin_url
 		);
 
 		$this->destination_id = WP_CLI::runcommand(
