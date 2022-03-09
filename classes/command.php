@@ -58,6 +58,9 @@ class WP_CLI_Command {
 		$this->fix_metadata();
 		$this->copy_files();
 		$this->search_replace();
+		if ( defined( 'BEA_CSF_VERSION' ) ) {
+			$this->duplicate_csf( $this->origin_id, $this->destination_id );
+		}
 		$this->flush_cache();
 
 		WP_CLI::success( sprintf( 'Site %s created.', $this->destination_id ) );
@@ -293,4 +296,102 @@ class WP_CLI_Command {
 		);
 	}
 
+	/**
+	 * Duplicate the CSF relationships of the original site for the new site
+	 *
+	 * @param int $origin_id
+	 * @param int $new_id
+	 *
+	 * @return void
+	 */
+	private function duplicate_csf( int $origin_id, int $new_id ): void {
+		$rows_relations = $this->get_relation_by_receiver_id( $origin_id );
+
+		if ( empty( $rows_relations ) ) {
+			WP_CLI::warning( sprintf( 'No relationship exists for the receiver ID : %d', $origin_id ) );
+
+			return;
+		}
+
+		$total_origin_relations = count( $rows_relations );
+
+		WP_CLI::line( sprintf( 'Duplicating %d rows...', $total_origin_relations ) );
+
+		$inserted = $this->insert_news_relation( $rows_relations, $new_id );
+
+		if ( $total_origin_relations !== $inserted ) {
+			WP_CLI::warning( sprintf( 'Error while duplicating relation. Original relations count was %d and duplicated relations count is %d', $total_origin_relations, $inserted ) );
+		}
+	}
+
+	/**
+	 * Retrieve CSF relationships for a specific receiver site
+	 *
+	 * @param int $receiver_id
+	 *
+	 * @return array|object|\stdClass[]|null
+	 */
+	private function get_relation_by_receiver_id( int $receiver_id ) {
+		global $wpdb;
+
+		return $wpdb->get_results(
+			$wpdb->prepare(
+				"SELECT * FROM {$wpdb->bea_csf_relations} WHERE receiver_blog_id=%d",
+				$receiver_id
+			),
+			ARRAY_A
+		);
+	}
+
+	/**
+	 * Insert relationships for the new blog ID
+	 *
+	 * @param array $rows_relations
+	 * @param int $receiver_id
+	 */
+	private function insert_news_relation( array $rows_relations, int $receiver_id ): int {
+		global $wpdb;
+
+		$insert_rows = 0;
+
+		foreach ( $rows_relations as $relation ) {
+			$insert = $wpdb->insert(
+				$wpdb->bea_csf_relations,
+				[
+					'type'             => $relation['type'],
+					'emitter_blog_id'  => $relation['emitter_blog_id'],
+					'emitter_id'       => $relation['emitter_id'],
+					'receiver_blog_id' => $receiver_id,
+					'receiver_id'      => $relation['receiver_id'],
+				],
+				[
+					'%s',
+					'%d',
+					'%d',
+					'%d',
+					'%d',
+				]
+			);
+
+			if ( false !== $insert ) {
+				$insert_rows ++;
+			}
+
+			if ( false === $insert ) {
+				WP_CLI::warning(
+					sprintf(
+						'Error while duplicating relation : type %s / emitter_blog_id %d / emitter_id %d / receiver_blog_id %d / receiver_id %d : %s',
+						$relation['type'],
+						$relation['emitter_blog_id'],
+						$relation['emitter_id'],
+						$receiver_id,
+						$relation['receiver_id'],
+						$wpdb->last_error,
+					)
+				);
+			}
+		}
+
+		return $insert_rows;
+	}
 }
