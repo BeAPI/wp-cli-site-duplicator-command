@@ -237,6 +237,19 @@ class WP_CLI_Command {
 			);
 			$wpdb->query( $_query );
 			$this->verbose_line( 'Running query:', $_query );
+
+			$_query_2 = $wpdb->prepare(
+				"
+					INSERT INTO {$wpdb->usermeta} (user_id, meta_key, meta_value)
+					SELECT user_id, %s, meta_value
+					FROM {$wpdb->usermeta}
+					WHERE meta_key = %s;
+					",
+				$destination_prefix . 'user_level ',
+				$origin_prefix . 'user_level '
+			);
+			$wpdb->query( $_query_2 );
+			$this->verbose_line( 'Running query:', $_query_2 );
 			//phpcs:enable WordPress.DB.PreparedSQL.InterpolatedNotPrepared
 			//phpcs:enable WordPress.DB.PreparedSQL.NotPrepared
 		}
