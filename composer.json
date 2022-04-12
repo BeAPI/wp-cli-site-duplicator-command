@@ -16,7 +16,7 @@
 	},
 	"require-dev": {
         "wp-cli/wp-cli-bundle": "*",
-		"dealerdirect/phpcodesniffer-composer-installer": "^0.6.2",
+		"dealerdirect/phpcodesniffer-composer-installer": "^0.7",
 		"phpcompatibility/php-compatibility": "^9.3",
 		"phpro/grumphp-shim": "^0.18.0",
 		"roave/security-advisories": "dev-master",
@@ -31,5 +31,12 @@
 		"cs": "./vendor/bin/phpcs",
 		"cbf": "./vendor/bin/phpcbf",
 		"psalm": "./vendor/bin/psalm"
+	},
+	"config": {
+		"allow-plugins": {
+			"composer/installers": true,
+			"dealerdirect/phpcodesniffer-composer-installer": true,
+			"phpro/grumphp-shim": true
+		}
 	}
 }
