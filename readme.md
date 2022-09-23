@@ -13,7 +13,7 @@ Install and activate as a normal plugin. Then in the command line, from your sit
 ## Installation
 
 ```
-wp plugin install https://github.com/beapi/site-duplicator/archive/master.zip --activate-network
+wp plugin install https://github.com/BeAPI/wp-cli-site-duplicator-command/archive/refs/heads/master.zip --activate-network
 ```
 
 ## Usage
