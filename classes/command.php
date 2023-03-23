@@ -21,7 +21,7 @@ class WP_CLI_Command {
 	private $destination_url = '';
 	private $destination_slug = '';
 	private $destination_url_uploads = '';
-	private $email = '';
+	private $destination_email = '';
 
 	/**
 	 * Duplicate a site
@@ -48,7 +48,7 @@ class WP_CLI_Command {
 		$this->destination_slug = $args[0];
 
 		if ( isset( $args[1] ) && ! empty( $args[1] ) ) {
-			$this->email = $args[1];
+			$this->destination_email = $args[1];
 		}
 
 		// get info for origin site
@@ -80,7 +80,7 @@ class WP_CLI_Command {
 			$this->destination_slug,
 			$this->destination_name,
 			$origin_network_id,
-			$this->email,
+			$this->destination_email,
 			$this->origin_url
 		);
 
