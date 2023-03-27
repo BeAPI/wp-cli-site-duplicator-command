@@ -31,9 +31,13 @@ class WP_CLI_Command {
 	 * <new-site-slug>
 	 * : The subdomain/directory of the new site
 	 *
+	 * [<email>]
+	 * : Email for admin user
+	 *
 	 * ## EXAMPLES
 	 *
 	 *     wp site duplicate domain-slug
+	 *     wp site duplicate domain-slug admin@domain.com
 	 *     wp site duplicate test-site-12 --url=multisite.local/test-site-3
 	 */
 	public function __invoke( $args, $assoc_args ) {
