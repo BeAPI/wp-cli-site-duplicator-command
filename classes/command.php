@@ -21,6 +21,7 @@ class WP_CLI_Command {
 	private $destination_url = '';
 	private $destination_slug = '';
 	private $destination_url_uploads = '';
+	private $destination_email = '';
 
 	/**
 	 * Duplicate a site
@@ -45,6 +46,10 @@ class WP_CLI_Command {
 		}
 
 		$this->destination_slug = $args[0];
+
+		if ( isset( $args[1] ) && ! empty( $args[1] ) ) {
+			$this->destination_email = $args[1];
+		}
 
 		// get info for origin site
 		$this->origin_id     = get_current_blog_id();
@@ -71,10 +76,11 @@ class WP_CLI_Command {
 
 		// first step
 		$_command = sprintf(
-			'site create --slug=%s --porcelain --title="%s" --network_id=%d --url="%s"',
+			'site create --slug=%s --porcelain --title="%s" --network_id=%d --email="%s" --url="%s"',
 			$this->destination_slug,
 			$this->destination_name,
 			$origin_network_id,
+			$this->destination_email,
 			$this->origin_url
 		);
 
