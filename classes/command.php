@@ -139,8 +139,10 @@ class WP_CLI_Command {
 	/**
 	 * List the origin site's tables, without network-wide tables or other sites' tables.
 	 *
-	 * On the main site the blog prefix equals the base prefix, so "--all-tables-with-prefix"
-	 * may also return global tables (users, blogs...) and the tables of every child site.
+	 * When the origin uses the base prefix (blog 1), "--all-tables-with-prefix" may also return
+	 * global tables (users, blogs...) and the tables of every other site. Other sites are matched
+	 * on their real prefix ("wp_2_"), not on "wp_<digits>_", so plugin tables such as
+	 * "wp_404_to_301" stay in the copy.
 	 *
 	 * @return string[]
 	 */
@@ -155,16 +157,40 @@ class WP_CLI_Command {
 			WP_CLI::error( sprintf( 'No table found for site %s.', $this->origin_url ) );
 		}
 
-		if ( ! is_main_site( $this->origin_id ) ) {
+		if ( $wpdb->get_blog_prefix( $this->origin_id ) !== $wpdb->base_prefix ) {
 			return array_values( $tables );
 		}
 
-		$global_tables      = array_merge( $wpdb->tables( 'global' ), $wpdb->tables( 'ms_global' ) );
-		$child_tables_regex = '/^' . preg_quote( $wpdb->base_prefix, '/' ) . '\d+_/';
+		$global_tables  = array_merge( $wpdb->tables( 'global' ), $wpdb->tables( 'ms_global' ) );
+		$other_sites    = array_diff(
+			array_map(
+				'intval',
+				get_sites(
+					[
+						'fields' => 'ids',
+						'number' => 0,
+					]
+				)
+			),
+			[ $this->origin_id ]
+		);
+		$other_prefixes = array_map( static fn( int $site_id ): string => $wpdb->get_blog_prefix( $site_id ), $other_sites );
 
 		$tables = array_filter(
 			$tables,
-			static fn( string $table ): bool => ! in_array( $table, $global_tables, true ) && ! preg_match( $child_tables_regex, $table )
+			static function ( string $table ) use ( $global_tables, $other_prefixes ): bool {
+				if ( in_array( $table, $global_tables, true ) ) {
+					return false;
+				}
+
+				foreach ( $other_prefixes as $prefix ) {
+					if ( str_starts_with( $table, $prefix ) ) {
+						return false;
+					}
+				}
+
+				return true;
+			}
 		);
 
 		return array_values( $tables );
