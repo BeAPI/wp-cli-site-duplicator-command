@@ -22,3 +22,4 @@ phpcs.xml
 psalm.xml
 README.md
 webpack.config.js
+.ddev

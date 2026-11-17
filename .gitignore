@@ -13,3 +13,6 @@
 
 # Tests
 /tests/*.txt
+
+# Local WordPress used by the e2e tests (downloaded by tests/e2e/seed.sh)
+/tests/wordpress/
