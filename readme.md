@@ -8,7 +8,8 @@ Install and activate as a normal plugin. Then in the command line, from your sit
 
 ## Requirements
 
-* PHP >= 7.1
+* PHP >= 8.2
+* WordPress >= 6.4 (multisite)
 
 ## Installation
 
@@ -41,6 +42,17 @@ wp site duplicate <new-site-slug> admin@domain.tld --url=domain.tld/somesite
 For a little extra output add `--verbose`
 
 ## Development
+
+Quality tools need PHP 8.2+ and run on commit through GrumPHP:
+
+```
+composer install
+composer cs      # PHPCS (WPCS 3 + PHPCompatibilityWP)
+composer cbf     # PHPCS autofix
+composer psalm   # Psalm, with WordPress and WP-CLI stubs
+composer lint    # PHP syntax check
+composer audit   # Known vulnerabilities in dependencies
+```
 
 End-to-end tests run on a local [DDEV](https://ddev.com) subdirectory multisite (WordPress core is downloaded into `tests/wordpress/`, which is not versioned).
 

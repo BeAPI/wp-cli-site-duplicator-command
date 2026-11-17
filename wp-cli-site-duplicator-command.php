@@ -4,8 +4,8 @@
  * Plugin URI:        https://github.com/BeAPI/wp-cli-site-duplicator-command
  * Description:       A WP-CLI command for duplicating a site (blog) on a WordPress mutisite network
  * Version:           2.0.1
- * Requires at least: 4.4
- * Requires PHP:      7.1
+ * Requires at least: 6.4
+ * Requires PHP:      8.2
  * Author:            Be API
  * Author URI:        https://beapi.fr
  * License:           GPL v2 or later

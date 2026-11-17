@@ -103,8 +103,11 @@ $origin_blogname = get_option( 'blogname' );
 restore_current_blog();
 
 switch_to_blog( $dest_id );
-$check( $origin_blogname . ' copy' === get_option( 'blogname' ), sprintf( 'Unexpected blogname "%s".', get_option( 'blogname' ) ) );
-$check( untrailingslashit( get_option( 'home' ) ) === $dest_url, sprintf( 'Unexpected home option %s.', get_option( 'home' ) ) );
+$expected_blogname = $origin_blogname . ' copy';
+$dest_blogname     = get_option( 'blogname' );
+$dest_home         = untrailingslashit( get_option( 'home' ) );
+$check( $expected_blogname === $dest_blogname, sprintf( 'Unexpected blogname "%s".', $dest_blogname ) );
+$check( $dest_url === $dest_home, sprintf( 'Unexpected home option %s.', $dest_home ) );
 $check( is_array( get_option( $dest_prefix . 'user_roles' ) ), 'The roles option is not readable on the copy.' );
 if ( $origin_is_main ) {
 	$check( 'main-flag' === get_option( 'wp_e2e_flag' ), 'Option wp_e2e_flag was renamed or lost on the main site copy.' );
@@ -159,7 +162,7 @@ if ( 0 !== $admin_id ) {
  */
 $read_site = static function ( $site_id ) {
 	switch_to_blog( $site_id );
-	$data = [
+	$data          = [
 		'posts'      => get_posts(
 			[
 				'post_type'   => 'post',
