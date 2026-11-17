@@ -1,10 +1,8 @@
-# grumphp.yml
-parameters:
+grumphp:
   tasks:
     git_blacklist:
       keywords:
         - "var_dump("
-      whitelist_patterns: []
       triggered_by: ['php']
       regexp_type: G
     composer:
@@ -12,21 +10,16 @@ parameters:
       no_check_publish: true
       no_local_repository: true
     phplint:
-      exclude: ['vendor']
-      jobs: ~
+      exclude: ['vendor', 'tests/wordpress']
       triggered_by: ['php']
     phpcs:
       standard: ['phpcs.xml']
-      triggered_by: [php]
-    securitychecker:
-      lockfile: ./composer.lock
-      format: ~
-      end_point: ~
-      timeout: ~
+      triggered_by: ['php']
+    securitychecker_composeraudit:
       run_always: false
     psalm:
       config: psalm.xml
       triggered_by: ['php']
-      show_info: true
-  testsuites: []
-  extensions: []
+      # Same scope as psalm.xml: the e2e scripts run through "wp eval-file".
+      ignore_patterns: ['tests/', '.psalm/']
+      show_info: false

@@ -45,14 +45,35 @@ $list_tables = static function ( $prefix ) use ( $wpdb ) {
  * Options are left out of the count, the copy may get new transients.
  */
 $global_tables = array_merge( $wpdb->tables( 'global' ), $wpdb->tables( 'ms_global' ) );
+$other_sites   = array_diff(
+	array_map(
+		'intval',
+		get_sites(
+			[
+				'fields' => 'ids',
+				'number' => 0,
+			]
+		)
+	),
+	[ $origin_id ]
+);
+$is_other_site = static function ( string $table, string $prefix ) use ( $other_sites ): bool {
+	foreach ( $other_sites as $site_id ) {
+		if ( str_starts_with( $table, $prefix . $site_id . '_' ) ) {
+			return true;
+		}
+	}
+
+	return false;
+};
 $origin_tables = array_filter(
 	$list_tables( $origin_prefix ),
-	static function ( $table ) use ( $origin_is_main, $global_tables, $wpdb ) {
+	static function ( string $table ) use ( $origin_is_main, $global_tables, $is_other_site, $wpdb ): bool {
 		if ( ! $origin_is_main ) {
 			return true;
 		}
 
-		return ! in_array( $table, $global_tables, true ) && ! preg_match( '/^' . preg_quote( $wpdb->base_prefix, '/' ) . '\d+_/', $table );
+		return ! in_array( $table, $global_tables, true ) && ! $is_other_site( $table, $wpdb->base_prefix );
 	}
 );
 $dest_tables   = $list_tables( $dest_prefix );
@@ -81,8 +102,12 @@ if ( $origin_is_main ) {
 		$check( ! in_array( $dest_prefix . $suffix, $dest_tables, true ), sprintf( 'Global table %s was copied as %s.', $global_table, $dest_prefix . $suffix ) );
 	}
 
-	$child_copies = preg_grep( '/^' . preg_quote( $dest_prefix, '/' ) . '\d+_/', $dest_tables );
-	$check( empty( $child_copies ), sprintf( 'Child site tables were copied: %s.', implode( ', ', (array) $child_copies ) ) );
+	$child_copies = array_filter( $dest_tables, static fn( string $table ): bool => $is_other_site( $table, $dest_prefix ) );
+	$check( empty( $child_copies ), sprintf( 'Child site tables were copied: %s.', implode( ', ', $child_copies ) ) );
+
+	// A main site plugin table whose name looks like a site prefix ("wp_404_...") must be copied.
+	$check( in_array( $origin_prefix . '404_e2e_redirects', $origin_tables, true ), 'Seed issue: the wp_404_* table is missing.' );
+	$check( in_array( $dest_prefix . '404_e2e_redirects', $dest_tables, true ), 'The main site table wp_404_e2e_redirects was not copied.' );
 }
 
 /*
@@ -103,8 +128,11 @@ $origin_blogname = get_option( 'blogname' );
 restore_current_blog();
 
 switch_to_blog( $dest_id );
-$check( $origin_blogname . ' copy' === get_option( 'blogname' ), sprintf( 'Unexpected blogname "%s".', get_option( 'blogname' ) ) );
-$check( untrailingslashit( get_option( 'home' ) ) === $dest_url, sprintf( 'Unexpected home option %s.', get_option( 'home' ) ) );
+$expected_blogname = $origin_blogname . ' copy';
+$dest_blogname     = get_option( 'blogname' );
+$dest_home         = untrailingslashit( get_option( 'home' ) );
+$check( $expected_blogname === $dest_blogname, sprintf( 'Unexpected blogname "%s".', $dest_blogname ) );
+$check( $dest_url === $dest_home, sprintf( 'Unexpected home option %s.', $dest_home ) );
 $check( is_array( get_option( $dest_prefix . 'user_roles' ) ), 'The roles option is not readable on the copy.' );
 if ( $origin_is_main ) {
 	$check( 'main-flag' === get_option( 'wp_e2e_flag' ), 'Option wp_e2e_flag was renamed or lost on the main site copy.' );
@@ -159,7 +187,7 @@ if ( 0 !== $admin_id ) {
  */
 $read_site = static function ( $site_id ) {
 	switch_to_blog( $site_id );
-	$data = [
+	$data          = [
 		'posts'      => get_posts(
 			[
 				'post_type'   => 'post',

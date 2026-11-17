@@ -9,19 +9,31 @@ use WP_CLI;
 
 class WP_CLI_Command {
 
-	private $verbose = false;
+	/**
+	 * Options for WP_CLI::runcommand() when the output is parsed.
+	 */
+	private const RUNCOMMAND_CAPTURE = [
+		'launch'     => true,  // Launch a new process, or reuse the existing.
+		'exit_error' => false, // Exit on error by default.
+		'return'     => true,  // Capture and return output, or render in realtime.
+		'parse'      => false, // Parse returned output as a particular format.
+	];
 
-	private $origin_id = 0;
-	private $origin_url = '';
-	private $origin_url_uploads = '';
-	private $origin_tables = array();
+	private int $origin_id             = 0;
+	private string $origin_url         = '';
+	private string $origin_url_uploads = '';
 
-	private $destination_id = 0;
-	private $destination_name = '';
-	private $destination_url = '';
-	private $destination_slug = '';
-	private $destination_url_uploads = '';
-	private $destination_email = '';
+	/**
+	 * @var string[]
+	 */
+	private array $origin_tables = [];
+
+	private int $destination_id             = 0;
+	private string $destination_name        = '';
+	private string $destination_url         = '';
+	private string $destination_slug        = '';
+	private string $destination_url_uploads = '';
+	private string $destination_email       = '';
 
 	/**
 	 * Duplicate a site
@@ -39,8 +51,11 @@ class WP_CLI_Command {
 	 *     wp site duplicate domain-slug
 	 *     wp site duplicate domain-slug admin@domain.com
 	 *     wp site duplicate test-site-12 --url=multisite.local/test-site-3
+	 *
+	 * @param string[]             $args       Positional arguments.
+	 * @param array<string, mixed> $assoc_args Associative arguments, unused.
 	 */
-	public function __invoke( $args, $assoc_args ) {
+	public function __invoke( array $args, array $assoc_args ): void { // phpcs:ignore Generic.CodeAnalysis.UnusedFunctionParameter.FoundAfterLastUsed
 		if ( ! is_multisite() ) {
 			WP_CLI::error( 'This is a multisite command only.' );
 		}
@@ -49,13 +64,10 @@ class WP_CLI_Command {
 			WP_CLI::error( 'A destination slug is missing.' );
 		}
 
-		$this->destination_slug = $args[0];
+		$this->destination_slug  = $args[0];
+		$this->destination_email = $args[1] ?? '';
 
-		if ( isset( $args[1] ) && ! empty( $args[1] ) ) {
-			$this->destination_email = $args[1];
-		}
-
-		// get info for origin site
+		// Get info for origin site.
 		$this->origin_id     = get_current_blog_id();
 		$this->origin_url    = home_url();
 		$this->origin_tables = $this->get_origin_tables();
@@ -72,125 +84,124 @@ class WP_CLI_Command {
 		}
 		$this->flush_cache();
 
-		WP_CLI::success( sprintf( 'Site %s created.', $this->destination_id ) );
+		WP_CLI::success( sprintf( 'Site %d created.', $this->destination_id ) );
 	}
 
-	private function create_site() {
-		$origin_network_id = get_current_network_id();
-
-		// first step
+	private function create_site(): void {
 		$_command = sprintf(
-			'site create --slug=%s --porcelain --title="%s" --network_id=%d --email="%s" --url="%s"',
-			$this->destination_slug,
-			$this->destination_name,
-			$origin_network_id,
-			$this->destination_email,
-			$this->origin_url
+			'site create --slug=%s --porcelain --title=%s --network_id=%d --email=%s --url=%s',
+			escapeshellarg( $this->destination_slug ),
+			escapeshellarg( $this->destination_name ),
+			get_current_network_id(),
+			escapeshellarg( $this->destination_email ),
+			escapeshellarg( $this->origin_url )
 		);
 
-		$this->destination_id = WP_CLI::runcommand(
-			$_command,
-			array(
-				'launch'     => true, // Launch a new process, or reuse the existing.
-				'exit_error' => false, // Exit on error by default.
-				'return'     => true, // Capture and return output, or render in realtime.
-				'parse'      => false, // Parse returned output as a particular format.
-			)
-		);
+		$output = WP_CLI::runcommand( $_command, self::RUNCOMMAND_CAPTURE );
 
-		if ( 0 === (int) $this->destination_id ) {
-			WP_CLI::error( sprintf( 'Invalid new site ID %s', $this->destination_id ) );
+		$this->destination_id = is_string( $output ) ? (int) trim( $output ) : 0;
+		if ( 0 === $this->destination_id ) {
+			WP_CLI::error( sprintf( 'Invalid new site ID %s', is_string( $output ) ? $output : '' ) );
 		}
 
-		$this->verbose_line( 'New site id:', $this->destination_id );
+		$this->verbose_line( 'New site id:', (string) $this->destination_id );
 
 		$this->destination_url = get_home_url( $this->destination_id );
 	}
 
-	private function copy_files() {
+	private function copy_files(): void {
 		$src_wp_upload_dir        = wp_upload_dir();
 		$src_basedir              = $src_wp_upload_dir['basedir'];
 		$this->origin_url_uploads = $src_wp_upload_dir['baseurl'];
 
 		switch_to_blog( $this->destination_id );
 
-		// make upload destination
+		// Make upload destination.
 		$dest_wp_upload_dir            = wp_upload_dir();
 		$dest_basedir                  = $dest_wp_upload_dir['basedir'];
 		$this->destination_url_uploads = $dest_wp_upload_dir['baseurl'];
 
 		restore_current_blog();
 
-		// Recursive directory creation
 		wp_mkdir_p( $dest_basedir );
 
-		// copy files via rsync
+		$_command = sprintf(
+			'rsync -a %s %s --exclude sites',
+			escapeshellarg( $src_basedir . '/' ),
+			escapeshellarg( $dest_basedir )
+		);
+
 		WP_CLI::line( 'Duplicating uploads...' );
-		$this->verbose_line(
-			'Running command:',
-			"rsync -a {$src_basedir}/ {$dest_basedir} --exclude sites"
-		);
-		WP_CLI::launch(
-			WP_CLI\Utils\esc_cmd(
-				'rsync -a %s/ %s --exclude sites',
-				$src_basedir,
-				$dest_basedir
-			)
-		);
+		$this->verbose_line( 'Running command:', $_command );
+		WP_CLI::launch( $_command );
 	}
 
 	/**
 	 * List the origin site's tables, without network-wide tables or other sites' tables.
 	 *
-	 * On the main site the blog prefix equals the base prefix, so "--all-tables-with-prefix"
-	 * may also return global tables (users, blogs...) and the tables of every child site.
+	 * When the origin uses the base prefix (blog 1), "--all-tables-with-prefix" may also return
+	 * global tables (users, blogs...) and the tables of every other site. Other sites are matched
+	 * on their real prefix ("wp_2_"), not on "wp_<digits>_", so plugin tables such as
+	 * "wp_404_to_301" stay in the copy.
 	 *
 	 * @return string[]
 	 */
-	private function get_origin_tables() {
+	private function get_origin_tables(): array {
 		global $wpdb;
 
-		$_command = WP_CLI\Utils\esc_cmd( 'db tables --scope=blog --all-tables-with-prefix --url=%s --quiet', $this->origin_url );
-		$output   = WP_CLI::runcommand(
-			$_command,
-			array(
-				'launch'     => true, // Launch a new process, or reuse the existing.
-				'exit_error' => false, // Exit on error by default.
-				'return'     => true, // Capture and return output, or render in realtime.
-				'parse'      => false, // Parse returned output as a particular format.
-			)
-		);
+		$_command = sprintf( 'db tables --scope=blog --all-tables-with-prefix --url=%s --quiet', escapeshellarg( $this->origin_url ) );
+		$output   = WP_CLI::runcommand( $_command, self::RUNCOMMAND_CAPTURE );
 
-		$tables = array_filter( array_map( 'trim', explode( "\n", (string) $output ) ) );
+		$tables = array_filter( array_map( 'trim', explode( "\n", is_string( $output ) ? $output : '' ) ) );
 		if ( empty( $tables ) ) {
 			WP_CLI::error( sprintf( 'No table found for site %s.', $this->origin_url ) );
 		}
 
-		if ( ! is_main_site( $this->origin_id ) ) {
+		if ( $wpdb->get_blog_prefix( $this->origin_id ) !== $wpdb->base_prefix ) {
 			return array_values( $tables );
 		}
 
-		$global_tables      = array_merge( $wpdb->tables( 'global' ), $wpdb->tables( 'ms_global' ) );
-		$child_tables_regex = '/^' . preg_quote( $wpdb->base_prefix, '/' ) . '\d+_/';
+		$global_tables  = array_merge( $wpdb->tables( 'global' ), $wpdb->tables( 'ms_global' ) );
+		$other_sites    = array_diff(
+			array_map(
+				'intval',
+				get_sites(
+					[
+						'fields' => 'ids',
+						'number' => 0,
+					]
+				)
+			),
+			[ $this->origin_id ]
+		);
+		$other_prefixes = array_map( static fn( int $site_id ): string => $wpdb->get_blog_prefix( $site_id ), $other_sites );
 
 		$tables = array_filter(
 			$tables,
-			static function ( $table ) use ( $global_tables, $child_tables_regex ) {
-				return ! in_array( $table, $global_tables, true ) && ! preg_match( $child_tables_regex, $table );
+			static function ( string $table ) use ( $global_tables, $other_prefixes ): bool {
+				if ( in_array( $table, $global_tables, true ) ) {
+					return false;
+				}
+
+				foreach ( $other_prefixes as $prefix ) {
+					if ( str_starts_with( $table, $prefix ) ) {
+						return false;
+					}
+				}
+
+				return true;
 			}
 		);
 
 		return array_values( $tables );
 	}
 
-	private function duplicate_tables() {
+	private function duplicate_tables(): void {
 		global $wpdb;
 
-		$tables = $this->origin_tables;
+		WP_CLI::line( sprintf( 'Duplicating %d tables...', count( $this->origin_tables ) ) );
 
-		WP_CLI::line( sprintf( 'Duplicating %d tables...', count( $tables ) ) );
-
-		foreach ( $tables as $origin_table ) {
+		foreach ( $this->origin_tables as $origin_table ) {
 			$new_table = $this->get_new_table_name( $origin_table );
 			if ( $origin_table === $new_table ) {
 				WP_CLI::error(
@@ -201,37 +212,27 @@ class WP_CLI_Command {
 				);
 			}
 
-			$wpdb->query( sprintf( 'DROP TABLE IF EXISTS %s;', esc_sql( $new_table ) ) );
-			$results = $wpdb->query(
-				sprintf(
-					'CREATE TABLE %s LIKE %s;',
-					esc_sql( $new_table ),
-					esc_sql( $origin_table )
-				)
-			);
+			// Table names come from the database itself, they cannot be passed to prepare().
+			// phpcs:disable WordPress.DB.PreparedSQL.InterpolatedNotPrepared, WordPress.DB.DirectDatabaseQuery.SchemaChange
+			$wpdb->query( "DROP TABLE IF EXISTS `$new_table`" );
+
+			$results = $wpdb->query( "CREATE TABLE `$new_table` LIKE `$origin_table`" );
 			if ( false === $results ) {
 				WP_CLI::error( sprintf( 'Failed to create table %s from table %s', $new_table, $origin_table ) );
 			}
 
-			$results = $wpdb->query(
-				sprintf(
-					'INSERT INTO %s SELECT * FROM %s',
-					esc_sql( $new_table ),
-					esc_sql( $origin_table )
-				)
-			);
+			$results = $wpdb->query( "INSERT INTO `$new_table` SELECT * FROM `$origin_table`" );
 			if ( false === $results ) {
 				WP_CLI::error( sprintf( 'Failed to copy rows from table %s to table %s: %s', $origin_table, $new_table, $wpdb->last_error ) );
 			}
+			// phpcs:enable WordPress.DB.PreparedSQL.InterpolatedNotPrepared, WordPress.DB.DirectDatabaseQuery.SchemaChange
 		}
 	}
 
 	/**
-	 * Fix option_name and user_key with table prefix
-	 *
-	 * @param bool $keep_user
+	 * Fix the roles option name and copy the users' roles to the new site.
 	 */
-	public function fix_metadata( $keep_user = true ) {
+	private function fix_metadata(): void {
 		global $wpdb;
 
 		$origin_prefix      = $wpdb->get_blog_prefix( $this->origin_id );
@@ -250,22 +251,15 @@ class WP_CLI_Command {
 		$admin_user_id = $this->get_destination_admin_id();
 
 		foreach ( [ 'capabilities', 'user_level' ] as $meta_suffix ) {
-			//phpcs:disable WordPress.DB.PreparedSQL.InterpolatedNotPrepared
 			$_query = $wpdb->prepare(
 				"DELETE FROM {$wpdb->usermeta} WHERE meta_key = %s AND user_id != %d",
 				$destination_prefix . $meta_suffix,
 				$admin_user_id
 			);
-			//phpcs:enable WordPress.DB.PreparedSQL.InterpolatedNotPrepared
-			$wpdb->query( $_query ); //phpcs:ignore WordPress.DB.PreparedSQL.NotPrepared
+			$wpdb->query( $_query ); // phpcs:ignore WordPress.DB.PreparedSQL.NotPrepared
 			$this->verbose_line( 'Running query:', $_query );
 
-			if ( true !== $keep_user ) {
-				continue;
-			}
-
 			// Copy existing users' roles to the receiver site.
-			//phpcs:disable WordPress.DB.PreparedSQL.InterpolatedNotPrepared
 			$_query = $wpdb->prepare(
 				"INSERT INTO {$wpdb->usermeta} (user_id, meta_key, meta_value)
 				SELECT user_id, %s, meta_value
@@ -275,12 +269,11 @@ class WP_CLI_Command {
 				$origin_prefix . $meta_suffix,
 				$admin_user_id
 			);
-			//phpcs:enable WordPress.DB.PreparedSQL.InterpolatedNotPrepared
-			$wpdb->query( $_query ); //phpcs:ignore WordPress.DB.PreparedSQL.NotPrepared
+			$wpdb->query( $_query ); // phpcs:ignore WordPress.DB.PreparedSQL.NotPrepared
 			$this->verbose_line( 'Running query:', $_query );
 		}
 
-		// Fix title after tables recopy
+		// Fix title after tables recopy.
 		$wpdb->update(
 			$destination_prefix . 'options',
 			[ 'option_value' => $this->destination_name ],
@@ -293,7 +286,7 @@ class WP_CLI_Command {
 	 *
 	 * @return int User ID, or 0 when no email was given or the user does not exist.
 	 */
-	private function get_destination_admin_id() {
+	private function get_destination_admin_id(): int {
 		if ( '' === $this->destination_email ) {
 			return 0;
 		}
@@ -315,45 +308,49 @@ class WP_CLI_Command {
 	 *
 	 * @return string Destination table name, or the unchanged name when it lacks the origin prefix.
 	 */
-	private function get_new_table_name( $table_name ) {
+	private function get_new_table_name( string $table_name ): string {
 		global $wpdb;
 
 		$origin_prefix      = $wpdb->get_blog_prefix( $this->origin_id );
 		$destination_prefix = $wpdb->get_blog_prefix( $this->destination_id );
 
-		if ( 0 !== strpos( $table_name, $origin_prefix ) ) {
+		if ( ! str_starts_with( $table_name, $origin_prefix ) ) {
 			return $table_name;
 		}
 
 		return $destination_prefix . substr( $table_name, strlen( $origin_prefix ) );
 	}
 
-	private function search_replace() {
-		// long match first, replace upload url
-		WP_CLI::line( "Search-replace'ing tables (1/2)..." );
-		$_command = "search-replace --precise '$this->origin_url_uploads' '$this->destination_url_uploads' --url=$this->destination_url --quiet";
-		$this->verbose_line( 'Running command:', $_command );
-		WP_CLI::runcommand( $_command );
+	private function search_replace(): void {
+		// Long match first: replace the uploads URL, then the root URL.
+		$replacements = [
+			$this->origin_url_uploads => $this->destination_url_uploads,
+			$this->origin_url         => $this->destination_url,
+		];
 
-		// replace root url
-		WP_CLI::line( "Search-replace'ing tables (2/2)..." );
-		$_command = "search-replace --precise '$this->origin_url' '$this->destination_url' --url=$this->destination_url --quiet";
-		$this->verbose_line( 'Running command:', $_command );
-		WP_CLI::runcommand( $_command );
+		$step = 0;
+		foreach ( $replacements as $search => $replace ) {
+			++$step;
+			WP_CLI::line( sprintf( "Search-replace'ing tables (%d/%d)...", $step, count( $replacements ) ) );
+
+			$_command = sprintf(
+				'search-replace --precise %s %s --url=%s --quiet',
+				escapeshellarg( $search ),
+				escapeshellarg( $replace ),
+				escapeshellarg( $this->destination_url )
+			);
+			$this->verbose_line( 'Running command:', $_command );
+			WP_CLI::runcommand( $_command );
+		}
 	}
 
-	private function flush_cache() {
-		// Flush object cache
-		$_command = "cache flush --url=$this->destination_url";
+	private function flush_cache(): void {
+		$_command = sprintf( 'cache flush --url=%s', escapeshellarg( $this->destination_url ) );
 		WP_CLI::runcommand( $_command );
 		$this->verbose_line( 'Flush cache command:', $_command );
 	}
 
-	/**
-	 * @param string $pre
-	 * @param string $text
-	 */
-	private function verbose_line( $pre, $text ) {
+	private function verbose_line( string $pre, string $text ): void {
 		WP_CLI::debug(
 			WP_CLI::colorize(
 				"%C$pre%n $text"
@@ -364,10 +361,8 @@ class WP_CLI_Command {
 	/**
 	 * Duplicate the CSF relationships of the original site for the new site
 	 *
-	 * @param int $origin_id
-	 * @param int $new_id
-	 *
-	 * @return void
+	 * @param int $origin_id Origin site ID.
+	 * @param int $new_id    New site ID.
 	 */
 	private function duplicate_csf( int $origin_id, int $new_id ): void {
 		$rows_relations = $this->get_relation_by_receiver_id( $origin_id );
@@ -392,27 +387,31 @@ class WP_CLI_Command {
 	/**
 	 * Retrieve CSF relationships for a specific receiver site
 	 *
-	 * @param int $receiver_id
+	 * @param int $receiver_id Receiver site ID.
 	 *
-	 * @return array|object|\stdClass[]|null
+	 * @return array<int, array<string, mixed>>
 	 */
-	private function get_relation_by_receiver_id( int $receiver_id ) {
+	private function get_relation_by_receiver_id( int $receiver_id ): array {
 		global $wpdb;
 
-		return $wpdb->get_results(
+		$rows = $wpdb->get_results(
 			$wpdb->prepare(
 				"SELECT * FROM {$wpdb->bea_csf_relations} WHERE receiver_blog_id=%d",
 				$receiver_id
 			),
 			ARRAY_A
 		);
+
+		return is_array( $rows ) ? $rows : [];
 	}
 
 	/**
 	 * Insert relationships for the new blog ID
 	 *
-	 * @param array $rows_relations
-	 * @param int $receiver_id
+	 * @param array<int, array<string, mixed>> $rows_relations Relations of the origin site.
+	 * @param int                              $receiver_id    New site ID.
+	 *
+	 * @return int Number of inserted relations.
 	 */
 	private function insert_news_relation( array $rows_relations, int $receiver_id ): int {
 		global $wpdb;
@@ -439,22 +438,21 @@ class WP_CLI_Command {
 			);
 
 			if ( false !== $insert ) {
-				$insert_rows ++;
+				++$insert_rows;
+				continue;
 			}
 
-			if ( false === $insert ) {
-				WP_CLI::warning(
-					sprintf(
-						'Error while duplicating relation : type %s / emitter_blog_id %d / emitter_id %d / receiver_blog_id %d / receiver_id %d : %s',
-						$relation['type'],
-						$relation['emitter_blog_id'],
-						$relation['emitter_id'],
-						$receiver_id,
-						$relation['receiver_id'],
-						$wpdb->last_error
-					)
-				);
-			}
+			WP_CLI::warning(
+				sprintf(
+					'Error while duplicating relation : type %s / emitter_blog_id %d / emitter_id %d / receiver_blog_id %d / receiver_id %d : %s',
+					$relation['type'],
+					$relation['emitter_blog_id'],
+					$relation['emitter_id'],
+					$receiver_id,
+					$relation['receiver_id'],
+					$wpdb->last_error
+				)
+			);
 		}
 
 		return $insert_rows;

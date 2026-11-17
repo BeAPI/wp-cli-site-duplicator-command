@@ -85,6 +85,9 @@ seed_site() {
 
 echo "==> Seed the main site"
 seed_site "${MAIN_URL}" main editor
+# A plugin table whose name looks like a site prefix (e.g. "404 to 301" plugin).
+wp db query "CREATE TABLE \`wp_404_e2e_redirects\` (id INT PRIMARY KEY, url VARCHAR(255) NOT NULL)"
+wp db query "INSERT INTO \`wp_404_e2e_redirects\` VALUES (1, '${MAIN_URL}/old/')"
 # An option whose name starts with the main site prefix but is not prefix-scoped.
 wp option update wp_e2e_flag main-flag --url="${MAIN_URL}"
 
