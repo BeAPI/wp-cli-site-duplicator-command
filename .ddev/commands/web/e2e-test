@@ -1,0 +1,7 @@
+#!/usr/bin/env bash
+
+## Description: Seed the multisite, then run the site duplication e2e tests
+## Usage: e2e-test
+## Example: "ddev e2e-test"
+
+bash /var/www/html/tests/e2e/test.sh "$@"

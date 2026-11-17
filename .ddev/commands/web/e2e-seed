@@ -1,0 +1,7 @@
+#!/usr/bin/env bash
+
+## Description: Rebuild the deterministic e2e multisite (destroys local data)
+## Usage: e2e-seed
+## Example: "ddev e2e-seed"
+
+bash /var/www/html/tests/e2e/seed.sh "$@"
