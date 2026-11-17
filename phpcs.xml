@@ -43,7 +43,7 @@
     <config name="minimum_supported_wp_version" value="4.4"/>
 
     <rule ref="PHPCompatibility"/>
-    <config name="testVersion" value="5.6-"/>
+    <config name="testVersion" value="7.1-"/>
 
     <rule ref="WordPress.Security.ValidatedSanitizedInput">
         <properties>

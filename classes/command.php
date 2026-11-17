@@ -45,7 +45,7 @@ class WP_CLI_Command {
 			WP_CLI::error( 'This is a multisite command only.' );
 		}
 
-		if ( ! isset( $args[0] ) && empty( $args[0] ) ) {
+		if ( empty( $args[0] ) ) {
 			WP_CLI::error( 'A destination slug is missing.' );
 		}
 
@@ -139,9 +139,19 @@ class WP_CLI_Command {
 		);
 	}
 
+	/**
+	 * List the origin site's tables, without network-wide tables or other sites' tables.
+	 *
+	 * On the main site the blog prefix equals the base prefix, so "--all-tables-with-prefix"
+	 * may also return global tables (users, blogs...) and the tables of every child site.
+	 *
+	 * @return string[]
+	 */
 	private function get_origin_tables() {
-		$_command      = "db tables --scope=blog --all-tables-with-prefix --url=$this->origin_url --quiet";
-		$origin_tables = WP_CLI::runcommand(
+		global $wpdb;
+
+		$_command = WP_CLI\Utils\esc_cmd( 'db tables --scope=blog --all-tables-with-prefix --url=%s --quiet', $this->origin_url );
+		$output   = WP_CLI::runcommand(
 			$_command,
 			array(
 				'launch'     => true, // Launch a new process, or reuse the existing.
@@ -150,15 +160,33 @@ class WP_CLI_Command {
 				'parse'      => false, // Parse returned output as a particular format.
 			)
 		);
-		$origin_tables = explode( PHP_EOL, $origin_tables );
 
-		return $origin_tables;
+		$tables = array_filter( array_map( 'trim', explode( "\n", (string) $output ) ) );
+		if ( empty( $tables ) ) {
+			WP_CLI::error( sprintf( 'No table found for site %s.', $this->origin_url ) );
+		}
+
+		if ( ! is_main_site( $this->origin_id ) ) {
+			return array_values( $tables );
+		}
+
+		$global_tables      = array_merge( $wpdb->tables( 'global' ), $wpdb->tables( 'ms_global' ) );
+		$child_tables_regex = '/^' . preg_quote( $wpdb->base_prefix, '/' ) . '\d+_/';
+
+		$tables = array_filter(
+			$tables,
+			static function ( $table ) use ( $global_tables, $child_tables_regex ) {
+				return ! in_array( $table, $global_tables, true ) && ! preg_match( $child_tables_regex, $table );
+			}
+		);
+
+		return array_values( $tables );
 	}
 
 	private function duplicate_tables() {
 		global $wpdb;
 
-		$tables = $this->get_origin_tables();
+		$tables = $this->origin_tables;
 
 		WP_CLI::line( sprintf( 'Duplicating %d tables...', count( $tables ) ) );
 
@@ -185,13 +213,16 @@ class WP_CLI_Command {
 				WP_CLI::error( sprintf( 'Failed to create table %s from table %s', $new_table, $origin_table ) );
 			}
 
-			$wpdb->query(
+			$results = $wpdb->query(
 				sprintf(
 					'INSERT INTO %s SELECT * FROM %s',
 					esc_sql( $new_table ),
 					esc_sql( $origin_table )
 				)
 			);
+			if ( false === $results ) {
+				WP_CLI::error( sprintf( 'Failed to copy rows from table %s to table %s: %s', $origin_table, $new_table, $wpdb->last_error ) );
+			}
 		}
 	}
 
@@ -206,62 +237,47 @@ class WP_CLI_Command {
 		$origin_prefix      = $wpdb->get_blog_prefix( $this->origin_id );
 		$destination_prefix = $wpdb->get_blog_prefix( $this->destination_id );
 
-		$option_table = esc_sql( $destination_prefix . 'options' );
-		//phpcs:disable WordPress.DB.PreparedSQL.NotPrepared
-		$_query = $wpdb->prepare(
-		//phpcs:disable WordPress.DB.PreparedSQL.InterpolatedNotPrepared
-			"UPDATE $option_table SET option_name = REPLACE(option_name, %s, %s )",
-			//phpcs:enable WordPress.DB.PreparedSQL.InterpolatedNotPrepared
-			$origin_prefix,
-			$destination_prefix
+		// Only the roles option carries the table prefix in its name (see WP_Roles).
+		// A global REPLACE would also rename unrelated options such as
+		// "wp_page_for_privacy_policy" when the origin is the main site.
+		$wpdb->update(
+			$destination_prefix . 'options',
+			[ 'option_name' => $destination_prefix . 'user_roles' ],
+			[ 'option_name' => $origin_prefix . 'user_roles' ]
 		);
-		$wpdb->query( $_query );
-		$this->verbose_line( 'Running query:', $_query );
-		//phpcs:enable WordPress.DB.PreparedSQL.NotPrepared
 
-		//phpcs:disable WordPress.DB.PreparedSQL.NotPrepared
-		$_query = $wpdb->prepare(
-			"DELETE FROM {$wpdb->usermeta} WHERE meta_key = %s",
-			//phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared
-			$destination_prefix . 'capabilities'
-		);
-		$wpdb->query( $_query );
-		$this->verbose_line( 'Running query:', $_query );
-		//phpcs:enable WordPress.DB.PreparedSQL.NotPrepared
+		// The admin set by "site create --email" must keep its role on the new site.
+		$admin_user_id = $this->get_destination_admin_id();
 
-		/**
-		 * Copy existing users's capabilities to the receiver site.
-		 */
-		if ( true === $keep_user ) {
-			//phpcs:disable WordPress.DB.PreparedSQL.NotPrepared
+		foreach ( [ 'capabilities', 'user_level' ] as $meta_suffix ) {
 			//phpcs:disable WordPress.DB.PreparedSQL.InterpolatedNotPrepared
 			$_query = $wpdb->prepare(
-				"
-					INSERT INTO {$wpdb->usermeta} (user_id, meta_key, meta_value)
-					SELECT user_id, %s, meta_value
-					FROM {$wpdb->usermeta}
-					WHERE meta_key = %s;
-					",
-				$destination_prefix . 'capabilities',
-				$origin_prefix . 'capabilities'
+				"DELETE FROM {$wpdb->usermeta} WHERE meta_key = %s AND user_id != %d",
+				$destination_prefix . $meta_suffix,
+				$admin_user_id
 			);
-			$wpdb->query( $_query );
+			//phpcs:enable WordPress.DB.PreparedSQL.InterpolatedNotPrepared
+			$wpdb->query( $_query ); //phpcs:ignore WordPress.DB.PreparedSQL.NotPrepared
 			$this->verbose_line( 'Running query:', $_query );
 
-			$_query_2 = $wpdb->prepare(
-				"
-					INSERT INTO {$wpdb->usermeta} (user_id, meta_key, meta_value)
-					SELECT user_id, %s, meta_value
-					FROM {$wpdb->usermeta}
-					WHERE meta_key = %s;
-					",
-				$destination_prefix . 'user_level ',
-				$origin_prefix . 'user_level '
+			if ( true !== $keep_user ) {
+				continue;
+			}
+
+			// Copy existing users' roles to the receiver site.
+			//phpcs:disable WordPress.DB.PreparedSQL.InterpolatedNotPrepared
+			$_query = $wpdb->prepare(
+				"INSERT INTO {$wpdb->usermeta} (user_id, meta_key, meta_value)
+				SELECT user_id, %s, meta_value
+				FROM {$wpdb->usermeta}
+				WHERE meta_key = %s AND user_id != %d",
+				$destination_prefix . $meta_suffix,
+				$origin_prefix . $meta_suffix,
+				$admin_user_id
 			);
-			$wpdb->query( $_query_2 );
-			$this->verbose_line( 'Running query:', $_query_2 );
 			//phpcs:enable WordPress.DB.PreparedSQL.InterpolatedNotPrepared
-			//phpcs:enable WordPress.DB.PreparedSQL.NotPrepared
+			$wpdb->query( $_query ); //phpcs:ignore WordPress.DB.PreparedSQL.NotPrepared
+			$this->verbose_line( 'Running query:', $_query );
 		}
 
 		// Fix title after tables recopy
@@ -273,9 +289,31 @@ class WP_CLI_Command {
 	}
 
 	/**
-	 * @return string
+	 * Get the ID of the user passed as <email>, who must stay admin of the new site.
 	 *
-	 * @param string $table_name
+	 * @return int User ID, or 0 when no email was given or the user does not exist.
+	 */
+	private function get_destination_admin_id() {
+		if ( '' === $this->destination_email ) {
+			return 0;
+		}
+
+		$user = get_user_by( 'email', $this->destination_email );
+		if ( false === $user ) {
+			WP_CLI::warning( sprintf( 'No user found for email %s.', $this->destination_email ) );
+
+			return 0;
+		}
+
+		return (int) $user->ID;
+	}
+
+	/**
+	 * Swap the origin prefix for the destination one, at the start of the name only.
+	 *
+	 * @param string $table_name Origin table name.
+	 *
+	 * @return string Destination table name, or the unchanged name when it lacks the origin prefix.
 	 */
 	private function get_new_table_name( $table_name ) {
 		global $wpdb;
@@ -283,7 +321,11 @@ class WP_CLI_Command {
 		$origin_prefix      = $wpdb->get_blog_prefix( $this->origin_id );
 		$destination_prefix = $wpdb->get_blog_prefix( $this->destination_id );
 
-		return str_replace( $origin_prefix, $destination_prefix, $table_name );
+		if ( 0 !== strpos( $table_name, $origin_prefix ) ) {
+			return $table_name;
+		}
+
+		return $destination_prefix . substr( $table_name, strlen( $origin_prefix ) );
 	}
 
 	private function search_replace() {
@@ -409,7 +451,7 @@ class WP_CLI_Command {
 						$relation['emitter_id'],
 						$receiver_id,
 						$relation['receiver_id'],
-						$wpdb->last_error,
+						$wpdb->last_error
 					)
 				);
 			}

@@ -5,7 +5,7 @@
  * Description:       A WP-CLI command for duplicating a site (blog) on a WordPress mutisite network
  * Version:           2.0.1
  * Requires at least: 4.4
- * Requires PHP:      5.6
+ * Requires PHP:      7.1
  * Author:            Be API
  * Author URI:        https://beapi.fr
  * License:           GPL v2 or later
