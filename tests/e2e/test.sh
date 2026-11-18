@@ -22,4 +22,8 @@ echo "==> Duplicate the main site, without email"
 wp site duplicate main-copy --url="${MAIN_URL}"
 wp eval-file "${ASSERT}" main main-copy --url="${MAIN_URL}"
 
+echo "==> Duplicate the child site with a PHP notice printed before WordPress loads"
+wp site duplicate child-notice --url="${MAIN_URL}/child" --require="${REPO_ROOT}/tests/e2e/early-notice.php"
+wp eval-file "${ASSERT}" child child-notice --url="${MAIN_URL}"
+
 echo "==> All e2e scenarios passed"
