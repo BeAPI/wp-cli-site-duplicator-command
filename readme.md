@@ -67,6 +67,8 @@ ddev e2e-test
 
 `ddev e2e-test` rebuilds the network from scratch with `tests/e2e/seed.sh` (main site + `/child`, users, media, content, a custom table), then duplicates the child site and the main site and checks the copies with `tests/e2e/assert-duplicate.php`. The seed destroys all local data and can be run alone with `ddev e2e-seed`. The WordPress version is pinned by `WP_VERSION` in `tests/e2e/seed.sh`.
 
+GitHub Actions runs the quality tools on PHP 8.2, 8.3 and 8.4, then the e2e tests in DDEV, on every pull request and on `master` (`.github/workflows/tests.yml`).
+
 ## Who ?
 
 Created by [Be API](https://beapi.fr), the French WordPress leader agency since 2009. Based in Paris, we are more than 30 people and always [hiring](https://beapi.workable.com) some fun and talented guys. So we will be pleased to work with you.
