@@ -244,7 +244,7 @@ if ( $origin_is_main ) {
 	$check( false !== strpos( $dest_links, 'href="' . $child_url . '/hello/"' ), 'A link to a child site page was rewritten on the copy.' );
 	$check( false !== strpos( $dest_links, 'href="' . $child_url . '"' ), 'A link to the child site home was rewritten on the copy.' );
 	$check( false !== strpos( $dest_links, 'href="' . $dest_url . '/children-page/"' ), 'A main site link looking like the child path was not replaced.' );
-	$check( false !== strpos( $dest_links, '/wp-content/uploads/sites/2/e2e-child.png' ), 'A child site uploads URL was rewritten into the copy uploads.' );
+	$check( false !== strpos( $dest_links, 'src="' . $origin_url . '/wp-content/uploads/sites/2/e2e-child.png"' ), 'A child site uploads URL was rewritten on the copy.' );
 	$check( false === strpos( $dest_links, $dest_url . '/child/' ), 'A child site URL points under the copy URL.' );
 	$check( false !== strpos( $origin_links, 'href="' . $origin_url . '/children-page/"' ), 'The origin cross-site links page was modified.' );
 }
