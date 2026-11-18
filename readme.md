@@ -37,6 +37,10 @@ Make an existing or new user the administrator of the copy:
 wp site duplicate <new-site-slug> admin@domain.tld --url=domain.tld/somesite
 ```
 
+### Duplicating the main site
+
+The main site can be duplicated too. Network-wide tables (`users`, `usermeta`, `blogs`, `site`, `sitemeta`...) and the other sites' tables and uploads are not copied. Links to the other sites are kept: on a subdirectory network, `domain.tld/somesite/` is not rewritten to `domain.tld/<new-site-slug>/somesite/`.
+
 ### Additional options
 
 For a little extra output add `--verbose`

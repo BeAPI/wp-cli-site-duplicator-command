@@ -226,6 +226,29 @@ if ( ! empty( $dest_data['posts'] ) && ! empty( $origin_data['posts'] ) ) {
 	}
 }
 
+/*
+ * Main site copy: links to the child site, nested under the main site URL, are kept.
+ */
+if ( $origin_is_main ) {
+	$child_url      = untrailingslashit( get_home_url( (int) get_id_from_blogname( 'child' ) ) );
+	$get_links_page = static function ( string $prefix ) use ( $wpdb ): string {
+		return (string) $wpdb->get_var(
+			$wpdb->prepare( "SELECT post_content FROM `{$prefix}posts` WHERE post_title = %s AND post_type = 'page'", 'E2E cross-site links' )
+		);
+	};
+	$origin_links   = $get_links_page( $origin_prefix );
+	$dest_links     = $get_links_page( $dest_prefix );
+
+	$check( '' !== $origin_links, 'Seed issue: the cross-site links page is missing.' );
+	$check( '' !== $dest_links, 'The cross-site links page was not copied.' );
+	$check( false !== strpos( $dest_links, 'href="' . $child_url . '/hello/"' ), 'A link to a child site page was rewritten on the copy.' );
+	$check( false !== strpos( $dest_links, 'href="' . $child_url . '"' ), 'A link to the child site home was rewritten on the copy.' );
+	$check( false !== strpos( $dest_links, 'href="' . $dest_url . '/children-page/"' ), 'A main site link looking like the child path was not replaced.' );
+	$check( false !== strpos( $dest_links, '/wp-content/uploads/sites/2/e2e-child.png' ), 'A child site uploads URL was rewritten into the copy uploads.' );
+	$check( false === strpos( $dest_links, $dest_url . '/child/' ), 'A child site URL points under the copy URL.' );
+	$check( false !== strpos( $origin_links, 'href="' . $origin_url . '/children-page/"' ), 'The origin cross-site links page was modified.' );
+}
+
 $check( ! empty( $dest_data['files'] ), 'The copy has no attachment.' );
 foreach ( $dest_data['files'] as $file ) {
 	$check( is_string( $file ) && 0 === strpos( $file, $dest_data['upload_dir']['basedir'] ) && file_exists( $file ), sprintf( 'Attachment file missing on the copy: %s.', (string) $file ) );

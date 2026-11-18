@@ -157,7 +157,7 @@ class WP_CLI_Command {
 			WP_CLI::error( sprintf( 'No table found for site %s.', $this->origin_url ) );
 		}
 
-		if ( $wpdb->get_blog_prefix( $this->origin_id ) !== $wpdb->base_prefix ) {
+		if ( ! $this->is_origin_main_site() ) {
 			return array_values( $tables );
 		}
 
@@ -321,27 +321,106 @@ class WP_CLI_Command {
 		return $destination_prefix . substr( $table_name, strlen( $origin_prefix ) );
 	}
 
+	/**
+	 * Point the copy's URLs to the new site.
+	 *
+	 * When the origin is the main site, its URLs are a prefix of other sites' URLs: the uploads URL
+	 * prefixes the child sites' uploads ("uploads/sites/2/"), and on a subdirectory network the home
+	 * URL prefixes every child site ("/child/"). Those URLs are skipped with a negative lookahead,
+	 * so links to other sites keep working on the copy.
+	 */
 	private function search_replace(): void {
+		$is_main_site = $this->is_origin_main_site();
+		$other_paths  = array_map( static fn( string $path ): string => preg_quote( $path, '~' ), $this->get_other_site_paths() );
+
 		// Long match first: replace the uploads URL, then the root URL.
 		$replacements = [
-			$this->origin_url_uploads => $this->destination_url_uploads,
-			$this->origin_url         => $this->destination_url,
+			[
+				'search'  => $this->origin_url_uploads,
+				'replace' => $this->destination_url_uploads,
+				'skip'    => $is_main_site ? '/sites/[0-9]+/' : '',
+			],
+			[
+				'search'  => $this->origin_url,
+				'replace' => $this->destination_url,
+				'skip'    => empty( $other_paths ) ? '' : '/(?:' . implode( '|', $other_paths ) . ')(?:[/?#"\'\s]|$)',
+			],
 		];
 
 		$step = 0;
-		foreach ( $replacements as $search => $replace ) {
+		foreach ( $replacements as $replacement ) {
 			++$step;
 			WP_CLI::line( sprintf( "Search-replace'ing tables (%d/%d)...", $step, count( $replacements ) ) );
 
-			$_command = sprintf(
-				'search-replace --precise %s %s --url=%s --quiet',
-				escapeshellarg( $search ),
-				escapeshellarg( $replace ),
-				escapeshellarg( $this->destination_url )
-			);
+			if ( '' === $replacement['skip'] ) {
+				$_command = sprintf(
+					'search-replace --precise %s %s --url=%s --quiet',
+					escapeshellarg( $replacement['search'] ),
+					escapeshellarg( $replacement['replace'] ),
+					escapeshellarg( $this->destination_url )
+				);
+			} else {
+				$_command = sprintf(
+					'search-replace --precise --regex --regex-delimiter=%s %s %s --url=%s --quiet',
+					escapeshellarg( '~' ),
+					escapeshellarg( preg_quote( $replacement['search'], '~' ) . '(?!' . $replacement['skip'] . ')' ),
+					escapeshellarg( $replacement['replace'] ),
+					escapeshellarg( $this->destination_url )
+				);
+			}
+
 			$this->verbose_line( 'Running command:', $_command );
 			WP_CLI::runcommand( $_command );
 		}
+	}
+
+	/**
+	 * Whether the origin uses the network base prefix, as the main site does.
+	 */
+	private function is_origin_main_site(): bool {
+		global $wpdb;
+
+		return $wpdb->get_blog_prefix( $this->origin_id ) === $wpdb->base_prefix;
+	}
+
+	/**
+	 * Paths of the other sites nested under the origin URL, relative to it (e.g. "child").
+	 *
+	 * Only a main site on a subdirectory network has sites nested under its URL.
+	 *
+	 * @return string[]
+	 */
+	private function get_other_site_paths(): array {
+		if ( ! $this->is_origin_main_site() || is_subdomain_install() ) {
+			return [];
+		}
+
+		$origin_site = get_site( $this->origin_id );
+		if ( null === $origin_site ) {
+			return [];
+		}
+
+		$sites = get_sites(
+			[
+				'number'       => 0,
+				'domain'       => $origin_site->domain,
+				'site__not_in' => [ $this->origin_id, $this->destination_id ],
+			]
+		);
+
+		$paths = [];
+		foreach ( $sites as $site ) {
+			if ( ! $site instanceof \WP_Site || ! str_starts_with( $site->path, $origin_site->path ) ) {
+				continue;
+			}
+
+			$path = trim( substr( $site->path, strlen( $origin_site->path ) ), '/' );
+			if ( '' !== $path ) {
+				$paths[] = $path;
+			}
+		}
+
+		return $paths;
 	}
 
 	private function flush_cache(): void {
