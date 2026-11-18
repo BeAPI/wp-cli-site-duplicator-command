@@ -57,10 +57,15 @@ PHP
 
 wp site create --slug=child --title="Child site" --email="${ADMIN_EMAIL}"
 
+# Escape the slashes of a string the way json_encode() does by default.
+json_escape() {
+	printf '%s' "${1//\//\\/}"
+}
+
 # Same fixtures on both sites: users, a custom table, an image and content linking to the site URL.
 seed_site() {
 	local url="$1" label="$2" role="$3"
-	local prefix attachment_id image_url
+	local prefix attachment_id image_url post_id json
 
 	wp site empty --yes --url="${url}"
 	wp option update timezone_string "Europe/Paris" --url="${url}"
@@ -75,9 +80,15 @@ seed_site() {
 	attachment_id="$(wp media import "${IMAGE}" --title="E2E image ${label}" --porcelain --url="${url}")"
 	image_url="$(wp eval "echo wp_get_attachment_url( ${attachment_id} );" --url="${url}")"
 
-	wp post create --post_type=post --post_status=publish --post_title="E2E post ${label}" \
+	post_id="$(wp post create --post_type=post --post_status=publish --post_title="E2E post ${label}" \
 		--post_content="<p><a href=\"${url}/sample/\">link</a></p><p><img src=\"${image_url}\" /></p>" \
-		--url="${url}"
+		--porcelain --url="${url}")"
+
+	# JSON with escaped slashes, as stored by page builders, ACF JSON fields and plugin settings.
+	json="{\"link\":\"$(json_escape "${url}/json-page/")\",\"image\":\"$(json_escape "${image_url}")\"}"
+	wp option update e2e_json "${json}" --url="${url}"
+	wp post meta add "${post_id}" e2e_json "${json}" --url="${url}"
+
 	wp post create --post_type=page --post_status=publish --post_title="E2E page ${label}" \
 		--post_content="<p>${url}/page-link/</p>" \
 		--url="${url}"
@@ -94,6 +105,9 @@ wp option update wp_e2e_flag main-flag --url="${MAIN_URL}"
 # plus a main site page whose slug starts like the child path.
 wp post create --post_type=page --post_status=publish --post_title="E2E cross-site links" \
 	--post_content="<a href=\"${CHILD_URL}/hello/\">child</a> <a href=\"${CHILD_URL}\">child home</a> <a href=\"${MAIN_URL}/children-page/\">main page</a> <img src=\"${MAIN_URL}/wp-content/uploads/sites/2/e2e-child.png\" />" \
+	--url="${MAIN_URL}"
+# The same cross-site links, JSON-escaped.
+wp option update e2e_json_cross_links "{\"child\":\"$(json_escape "${CHILD_URL}/hello/")\",\"child_home\":\"$(json_escape "${CHILD_URL}")\",\"main\":\"$(json_escape "${MAIN_URL}/children-page/")\",\"child_image\":\"$(json_escape "${MAIN_URL}/wp-content/uploads/sites/2/e2e-child.png")\"}" \
 	--url="${MAIN_URL}"
 
 echo "==> Seed the child site"

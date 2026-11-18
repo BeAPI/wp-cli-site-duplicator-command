@@ -247,6 +247,47 @@ if ( $origin_is_main ) {
 	$check( false !== strpos( $dest_links, 'src="' . $origin_url . '/wp-content/uploads/sites/2/e2e-child.png"' ), 'A child site uploads URL was rewritten on the copy.' );
 	$check( false === strpos( $dest_links, $dest_url . '/child/' ), 'A child site URL points under the copy URL.' );
 	$check( false !== strpos( $origin_links, 'href="' . $origin_url . '/children-page/"' ), 'The origin cross-site links page was modified.' );
+
+	$get_json_links    = static function ( string $prefix ) use ( $wpdb ): array {
+		$value = $wpdb->get_var( "SELECT option_value FROM `{$prefix}options` WHERE option_name = 'e2e_json_cross_links'" );
+
+		return is_string( $value ) ? (array) json_decode( $value, true ) : [];
+	};
+	$origin_json_links = $get_json_links( $origin_prefix );
+	$dest_json_links   = $get_json_links( $dest_prefix );
+
+	$check( isset( $origin_json_links['child'] ), 'Seed issue: the JSON cross-site links option is missing or invalid.' );
+	$check( isset( $dest_json_links['child'] ), 'The JSON cross-site links option was not copied or is no longer valid JSON.' );
+	$check( ( $dest_json_links['child'] ?? '' ) === $child_url . '/hello/', 'An escaped link to a child site page was rewritten on the copy.' );
+	$check( ( $dest_json_links['child_home'] ?? '' ) === $child_url, 'An escaped link to the child site home was rewritten on the copy.' );
+	$check( ( $dest_json_links['main'] ?? '' ) === $dest_url . '/children-page/', 'An escaped main site link looking like the child path was not replaced.' );
+	$check( ( $dest_json_links['child_image'] ?? '' ) === $origin_url . '/wp-content/uploads/sites/2/e2e-child.png', 'An escaped child site uploads URL was rewritten on the copy.' );
+	$check( ( $origin_json_links['main'] ?? '' ) === $origin_url . '/children-page/', 'The origin JSON cross-site links option was modified.' );
+}
+
+/*
+ * JSON-escaped URLs ("https:\/\/..."), in an option and a post meta: they point to the copy too.
+ */
+$json_escape = static fn( string $value ): string => str_replace( '/', '\/', $value );
+$read_json   = static function ( string $prefix ) use ( $wpdb ): array {
+	return [
+		'option' => (string) $wpdb->get_var( "SELECT option_value FROM `{$prefix}options` WHERE option_name = 'e2e_json'" ),
+		'meta'   => (string) $wpdb->get_var( "SELECT meta_value FROM `{$prefix}postmeta` WHERE meta_key = 'e2e_json'" ),
+	];
+};
+$origin_json = $read_json( $origin_prefix );
+$dest_json   = $read_json( $dest_prefix );
+
+foreach ( $dest_json as $field => $dest_value ) {
+	$origin_value = $origin_json[ $field ];
+
+	$check( false !== strpos( $origin_value, $json_escape( $origin_url . '/json-page/' ) ), sprintf( 'Seed issue: the origin JSON %s has no escaped URL.', $field ) );
+	$check( false !== strpos( $dest_value, $json_escape( $dest_url . '/json-page/' ) ), sprintf( 'Escaped links of the JSON %s were not replaced with the copy URL.', $field ) );
+	$check( false !== strpos( $dest_value, $json_escape( $dest_url . '/wp-content/uploads/sites/' . $dest_id . '/' ) ), sprintf( 'Escaped image URL of the JSON %s does not point to the copy uploads.', $field ) );
+	$check( false === strpos( $origin_value, $json_escape( $dest_url . '/' ) ), sprintf( 'The origin JSON %s was modified.', $field ) );
+	if ( ! $origin_is_main ) {
+		$check( false === strpos( $dest_value, $json_escape( $origin_url . '/' ) ), sprintf( 'The copy JSON %s still links to the origin site.', $field ) );
+	}
 }
 
 $check( ! empty( $dest_data['files'] ), 'The copy has no attachment.' );
