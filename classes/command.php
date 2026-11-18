@@ -9,16 +9,6 @@ use WP_CLI;
 
 class WP_CLI_Command {
 
-	/**
-	 * Options for WP_CLI::runcommand() when the output is parsed.
-	 */
-	private const RUNCOMMAND_CAPTURE = [
-		'launch'     => true,  // Launch a new process, or reuse the existing.
-		'exit_error' => false, // Exit on error by default.
-		'return'     => true,  // Capture and return output, or render in realtime.
-		'parse'      => false, // Parse returned output as a particular format.
-	];
-
 	private int $origin_id             = 0;
 	private string $origin_url         = '';
 	private string $origin_url_uploads = '';
@@ -87,21 +77,36 @@ class WP_CLI_Command {
 		WP_CLI::success( sprintf( 'Site %d created.', $this->destination_id ) );
 	}
 
+	/**
+	 * Create the destination site with "wp site create", in the current process.
+	 *
+	 * A subprocess would print PHP notices raised before WordPress sets up its error handling
+	 * (e.g. in wp-config.php) to its output, which broke reading the new site ID from it. The ID
+	 * is read from the "wp_insert_site" hook instead, and the arguments are passed as arrays so
+	 * no shell quoting is involved.
+	 */
 	private function create_site(): void {
-		$_command = sprintf(
-			'site create --slug=%s --porcelain --title=%s --network_id=%d --email=%s --url=%s',
-			escapeshellarg( $this->destination_slug ),
-			escapeshellarg( $this->destination_name ),
-			get_current_network_id(),
-			escapeshellarg( $this->destination_email ),
-			escapeshellarg( $this->origin_url )
+		$capture_site_id = function ( \WP_Site $site ): void {
+			if ( 0 === $this->destination_id ) {
+				$this->destination_id = (int) $site->id;
+			}
+		};
+		add_action( 'wp_insert_site', $capture_site_id );
+
+		WP_CLI::run_command(
+			[ 'site', 'create' ],
+			[
+				'slug'       => $this->destination_slug,
+				'title'      => $this->destination_name,
+				'network_id' => (string) get_current_network_id(),
+				'email'      => $this->destination_email,
+			]
 		);
 
-		$output = WP_CLI::runcommand( $_command, self::RUNCOMMAND_CAPTURE );
+		remove_action( 'wp_insert_site', $capture_site_id );
 
-		$this->destination_id = is_string( $output ) ? (int) trim( $output ) : 0;
 		if ( 0 === $this->destination_id ) {
-			WP_CLI::error( sprintf( 'Invalid new site ID %s', is_string( $output ) ? $output : '' ) );
+			WP_CLI::error( 'The new site was not created.' );
 		}
 
 		$this->verbose_line( 'New site id:', (string) $this->destination_id );
@@ -139,6 +144,9 @@ class WP_CLI_Command {
 	/**
 	 * List the origin site's tables, without network-wide tables or other sites' tables.
 	 *
+	 * The origin is the current site, so the tables are listed in this process, as
+	 * "wp db tables --all-tables-with-prefix" does, without parsing a subprocess output.
+	 *
 	 * When the origin uses the base prefix (blog 1), "--all-tables-with-prefix" may also return
 	 * global tables (users, blogs...) and the tables of every other site. Other sites are matched
 	 * on their real prefix ("wp_2_"), not on "wp_<digits>_", so plugin tables such as
@@ -149,10 +157,7 @@ class WP_CLI_Command {
 	private function get_origin_tables(): array {
 		global $wpdb;
 
-		$_command = sprintf( 'db tables --scope=blog --all-tables-with-prefix --url=%s --quiet', escapeshellarg( $this->origin_url ) );
-		$output   = WP_CLI::runcommand( $_command, self::RUNCOMMAND_CAPTURE );
-
-		$tables = array_filter( array_map( 'trim', explode( "\n", is_string( $output ) ? $output : '' ) ) );
+		$tables = \WP_CLI\Utils\wp_get_table_names( [], [ 'all-tables-with-prefix' => '1' ] );
 		if ( empty( $tables ) ) {
 			WP_CLI::error( sprintf( 'No table found for site %s.', $this->origin_url ) );
 		}
