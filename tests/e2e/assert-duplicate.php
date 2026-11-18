@@ -244,7 +244,7 @@ if ( $origin_is_main ) {
 	$check( false !== strpos( $dest_links, 'href="' . $child_url . '/hello/"' ), 'A link to a child site page was rewritten on the copy.' );
 	$check( false !== strpos( $dest_links, 'href="' . $child_url . '"' ), 'A link to the child site home was rewritten on the copy.' );
 	$check( false !== strpos( $dest_links, 'href="' . $dest_url . '/children-page/"' ), 'A main site link looking like the child path was not replaced.' );
-	$check( false !== strpos( $dest_links, '/wp-content/uploads/sites/2/e2e-child.png' ), 'A child site uploads URL was rewritten into the copy uploads.' );
+	$check( false !== strpos( $dest_links, 'src="' . $origin_url . '/wp-content/uploads/sites/2/e2e-child.png"' ), 'A child site uploads URL was rewritten on the copy.' );
 	$check( false === strpos( $dest_links, $dest_url . '/child/' ), 'A child site URL points under the copy URL.' );
 	$check( false !== strpos( $origin_links, 'href="' . $origin_url . '/children-page/"' ), 'The origin cross-site links page was modified.' );
 
@@ -261,7 +261,7 @@ if ( $origin_is_main ) {
 	$check( ( $dest_json_links['child'] ?? '' ) === $child_url . '/hello/', 'An escaped link to a child site page was rewritten on the copy.' );
 	$check( ( $dest_json_links['child_home'] ?? '' ) === $child_url, 'An escaped link to the child site home was rewritten on the copy.' );
 	$check( ( $dest_json_links['main'] ?? '' ) === $dest_url . '/children-page/', 'An escaped main site link looking like the child path was not replaced.' );
-	$check( false !== strpos( $dest_json_links['child_image'] ?? '', '/wp-content/uploads/sites/2/e2e-child.png' ), 'An escaped child site uploads URL was rewritten into the copy uploads.' );
+	$check( ( $dest_json_links['child_image'] ?? '' ) === $origin_url . '/wp-content/uploads/sites/2/e2e-child.png', 'An escaped child site uploads URL was rewritten on the copy.' );
 	$check( ( $origin_json_links['main'] ?? '' ) === $origin_url . '/children-page/', 'The origin JSON cross-site links option was modified.' );
 }
 
