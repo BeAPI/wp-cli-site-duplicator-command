@@ -324,16 +324,21 @@ class WP_CLI_Command {
 	/**
 	 * Point the copy's URLs to the new site.
 	 *
+	 * URLs are replaced in both their plain form ("https://") and their JSON-escaped form
+	 * ("https:\/\/"), as stored by page builders, ACF JSON fields and plugin settings.
+	 *
 	 * When the origin is the main site, its URLs are a prefix of other sites' URLs: the uploads URL
 	 * prefixes the child sites' uploads ("uploads/sites/2/"), and on a subdirectory network the home
 	 * URL prefixes every child site ("/child/"). Those URLs are skipped with a negative lookahead,
-	 * so links to other sites keep working on the copy.
+	 * so links to other sites keep working on the copy. That pass is a regex, which matches both
+	 * slash forms at once; the other passes are literal, which lets WP-CLI only read matching rows.
 	 */
 	private function search_replace(): void {
 		$is_main_site = $this->is_origin_main_site();
 		$other_paths  = array_map( static fn( string $path ): string => preg_quote( $path, '~' ), $this->get_other_site_paths() );
 
 		// Long match first: replace the uploads URL, then the root URL.
+		// Skip patterns are written with "/" for the URL separator, see get_any_slash_regex().
 		$replacements = [
 			[
 				'search'  => $this->origin_url_uploads,
@@ -343,35 +348,55 @@ class WP_CLI_Command {
 			[
 				'search'  => $this->origin_url,
 				'replace' => $this->destination_url,
-				'skip'    => empty( $other_paths ) ? '' : '/(?:' . implode( '|', $other_paths ) . ')(?:[/?#"\'\s]|$)',
+				'skip'    => empty( $other_paths ) ? '' : '/(?:' . implode( '|', $other_paths ) . ')(?:/|[?#"\'\s]|$)',
 			],
 		];
 
-		$step = 0;
+		$commands = [];
 		foreach ( $replacements as $replacement ) {
-			++$step;
-			WP_CLI::line( sprintf( "Search-replace'ing tables (%d/%d)...", $step, count( $replacements ) ) );
-
-			if ( '' === $replacement['skip'] ) {
-				$_command = sprintf(
-					'search-replace --precise %s %s --url=%s --quiet',
-					escapeshellarg( $replacement['search'] ),
-					escapeshellarg( $replacement['replace'] ),
-					escapeshellarg( $this->destination_url )
-				);
-			} else {
-				$_command = sprintf(
+			if ( '' !== $replacement['skip'] ) {
+				$commands[] = sprintf(
 					'search-replace --precise --regex --regex-delimiter=%s %s %s --url=%s --quiet',
 					escapeshellarg( '~' ),
-					escapeshellarg( preg_quote( $replacement['search'], '~' ) . '(?!' . $replacement['skip'] . ')' ),
-					escapeshellarg( $replacement['replace'] ),
+					escapeshellarg( $this->get_any_slash_regex( preg_quote( $replacement['search'], '~' ) . '(?!' . $replacement['skip'] . ')' ) ),
+					escapeshellarg( str_replace( '/', '${1}', addcslashes( $replacement['replace'], '\\$' ) ) ),
+					escapeshellarg( $this->destination_url )
+				);
+				continue;
+			}
+
+			foreach ( [ $replacement, array_map( static fn( string $url ): string => str_replace( '/', '\/', $url ), $replacement ) ] as $literal ) {
+				$commands[] = sprintf(
+					'search-replace --precise %s %s --url=%s --quiet',
+					escapeshellarg( $literal['search'] ),
+					escapeshellarg( $literal['replace'] ),
 					escapeshellarg( $this->destination_url )
 				);
 			}
+		}
 
+		foreach ( $commands as $step => $_command ) {
+			WP_CLI::line( sprintf( "Search-replace'ing tables (%d/%d)...", $step + 1, count( $commands ) ) );
 			$this->verbose_line( 'Running command:', $_command );
 			WP_CLI::runcommand( $_command );
 		}
+	}
+
+	/**
+	 * Make a regex match URLs with plain ("/") or JSON-escaped ("\/") slashes.
+	 *
+	 * The first "/" captures the separator in group 1, every other "/" is a backreference to it,
+	 * so a match uses one form throughout and the replacement reuses it with "${1}".
+	 *
+	 * @param string $regex Regex whose literal slashes are URL separators.
+	 */
+	private function get_any_slash_regex( string $regex ): string {
+		$position = strpos( $regex, '/' );
+		if ( false === $position ) {
+			return $regex;
+		}
+
+		return substr( $regex, 0, $position ) . '(\\\\?/)' . str_replace( '/', '\\1', substr( $regex, $position + 1 ) );
 	}
 
 	/**
