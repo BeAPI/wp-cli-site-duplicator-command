@@ -327,11 +327,22 @@ class WP_CLI_Command {
 	 * When the origin is the main site, its URLs are a prefix of other sites' URLs: the uploads URL
 	 * prefixes the child sites' uploads ("uploads/sites/2/"), and on a subdirectory network the home
 	 * URL prefixes every child site ("/child/"). Those URLs are skipped with a negative lookahead,
-	 * so links to other sites keep working on the copy.
+	 * in both passes, so links to other sites and their media keep working on the copy.
 	 */
 	private function search_replace(): void {
 		$is_main_site = $this->is_origin_main_site();
 		$other_paths  = array_map( static fn( string $path ): string => preg_quote( $path, '~' ), $this->get_other_site_paths() );
+
+		$root_skips = [];
+		if ( ! empty( $other_paths ) ) {
+			$root_skips[] = '/(?:' . implode( '|', $other_paths ) . ')(?:[/?#"\'\s]|$)';
+		}
+
+		// After the uploads pass, the copy's own media sit in "uploads/sites/<destination id>/": keep rewriting those.
+		if ( $is_main_site && str_starts_with( $this->origin_url_uploads, $this->origin_url ) ) {
+			$uploads_path = substr( $this->origin_url_uploads, strlen( $this->origin_url ) );
+			$root_skips[] = preg_quote( $uploads_path, '~' ) . '/sites/(?!' . $this->destination_id . '/)[0-9]+/';
+		}
 
 		// Long match first: replace the uploads URL, then the root URL.
 		$replacements = [
@@ -343,7 +354,7 @@ class WP_CLI_Command {
 			[
 				'search'  => $this->origin_url,
 				'replace' => $this->destination_url,
-				'skip'    => empty( $other_paths ) ? '' : '/(?:' . implode( '|', $other_paths ) . ')(?:[/?#"\'\s]|$)',
+				'skip'    => empty( $root_skips ) ? '' : '(?:' . implode( '|', $root_skips ) . ')',
 			],
 		];
 
