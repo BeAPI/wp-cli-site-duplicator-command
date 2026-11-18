@@ -90,6 +90,11 @@ wp db query "CREATE TABLE \`wp_404_e2e_redirects\` (id INT PRIMARY KEY, url VARC
 wp db query "INSERT INTO \`wp_404_e2e_redirects\` VALUES (1, '${MAIN_URL}/old/')"
 # An option whose name starts with the main site prefix but is not prefix-scoped.
 wp option update wp_e2e_flag main-flag --url="${MAIN_URL}"
+# Links from the main site to the child site, whose URL starts with the main site URL,
+# plus a main site page whose slug starts like the child path.
+wp post create --post_type=page --post_status=publish --post_title="E2E cross-site links" \
+	--post_content="<a href=\"${CHILD_URL}/hello/\">child</a> <a href=\"${CHILD_URL}\">child home</a> <a href=\"${MAIN_URL}/children-page/\">main page</a> <img src=\"${MAIN_URL}/wp-content/uploads/sites/2/e2e-child.png\" />" \
+	--url="${MAIN_URL}"
 
 echo "==> Seed the child site"
 seed_site "${CHILD_URL}" child author
